@@ -23,26 +23,41 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import LabelEncoder
 import pandas as pd
 import streamlit as st
+import streamlit as st
+import pandas as pd
+import requests
+from io import StringIO
+from sklearn.preprocessing import LabelEncoder
 
 @st.cache_data(persist=True)
-def load_data(file_path):
+def load_data(file_url):
     """
-    Load CSV data and encode object columns to numeric.
+    Load CSV data from a URL (Google Drive direct download) and encode object columns to numeric.
 
     Parameters:
-        file_path (str): Path to the CSV file.
+        file_url (str): Direct download link to the CSV file.
 
     Returns:
         pd.DataFrame: Preprocessed dataframe.
     """
-    data = pd.read_csv(file_path)
-    
-    # Encode categorical object columns if any
-    labelencoder = LabelEncoder()
-    for col in data.select_dtypes(include=['object']).columns:
-        data[col] = labelencoder.fit_transform(data[col])
-    
-    return data
+    try:
+        # Fetch CSV content from Google Drive
+        response = requests.get(file_url)
+        response.raise_for_status()  # raise error if download fails
+        
+        # Read CSV into pandas
+        csv_data = StringIO(response.text)
+        data = pd.read_csv(csv_data)
+        
+        # Encode categorical object columns if any
+        labelencoder = LabelEncoder()
+        for col in data.select_dtypes(include=['object']).columns:
+            data[col] = labelencoder.fit_transform(data[col])
+        
+        return data
+    except Exception as e:
+        st.error(f"Failed to load data: {e}")
+        return pd.DataFrame()  # return empty DataFrame on failure
 
 # -----------------------------
 # Metrics plotting
@@ -118,11 +133,12 @@ def fraud_app():
     st.title("Credit Card Fraud Detection — Demo")
     st.sidebar.title("Settings")
 
-    # Sidebar inputs
-    data_path = st.sidebar.text_input(
-        "CSV Path",
-        value=r"C:\Users\eduv4822223\Downloads\New folder\New folder\creditcard.csv"
-    )
+    # Google Drive direct download link
+    data_url = "https://drive.google.com/uc?id=1reCMjmbpllm1wLQHYYPqf_m3vfXfYmN-"
+
+    # Load data
+    with st.spinner("Loading data..."):
+        data = load_data(data_url)
 
     test_size = st.sidebar.slider("Test set fraction", 0.05, 0.5, 0.2, 0.05)
     random_state = int(st.sidebar.number_input("Random seed", 0, 9999, value=42))
@@ -155,14 +171,6 @@ def fraud_app():
         epochs = st.sidebar.slider("Epochs", 1, 200, value=10)
 
     train_button = st.sidebar.button("Train model")
-
-    # Load data
-    try:
-        with st.spinner("Loading data..."):
-            data = load_data(data_path)
-    except Exception as e:
-        st.error(f"Failed to load data: {e}")
-        return
 
     st.subheader("Data preview")
     st.write(data.head())
@@ -252,67 +260,7 @@ def fraud_app():
         # Plot metrics using helper
         is_nn = classifier == "Shallow Neural Network"
         plot_metrics(metrics, model, x_test_scaled if scaler is not None else x_test.values, y_test, y_score=y_score, is_nn=is_nn)
-
-        # Feature distribution explainer
-        st.subheader("Feature Distributions by Class (Explainer)")
-        balanced_df = x_train.copy()
-        balanced_df['Class'] = y_train
-        balanced_df_sample = balanced_df.sample(min(10000, len(balanced_df)), random_state=42)
-
-        for col in balanced_df_sample.columns:
-            fig = px.histogram(
-                balanced_df_sample,
-                x=col,
-                color='Class',
-                barmode='overlay',
-                title=f'Feature: {col}',
-                width=640,
-                height=400,
-                labels={'Class': 'Fraud (1) / Non-Fraud (0)'}
-            )
-            st.plotly_chart(fig)
-    
-        st.subheader("Feature Boxplots by Class")
-        
-        for col in balanced_df_sample.columns[:-1]:  # exclude 'Class'
-            fig = px.box(
-                balanced_df_sample,
-                x="Class",
-                y=col,
-                points="outliers",  # shows outliers explicitly
-                title=f'Boxplot of {col} by Class',
-                width=640,
-                height=400,
-                labels={'Class': 'Fraud (1) / Non-Fraud (0)'}
-            )
-            st.plotly_chart(fig)
-        st.subheader("Scatterplots to Detect Extreme Values")
-        
-        if "Amount" in balanced_df_sample.columns:
-            fig_amount = px.scatter(
-                balanced_df_sample,
-                x=balanced_df_sample.index,
-                y="Amount",
-                color="Class",
-                title="Transaction Amount Scatterplot",
-                labels={"Class": "Fraud (1) / Non-Fraud (0)", "index": "Transaction Index"},
-                width=800,
-                height=500
-            )
-            st.plotly_chart(fig_amount)
-        
-        if "Time" in balanced_df_sample.columns:
-            fig_time = px.scatter(
-                balanced_df_sample,
-                x="Time",
-                y="Amount",
-                color="Class",
-                title="Transaction Amount vs Time Scatterplot",
-                labels={"Class": "Fraud (1) / Non-Fraud (0)", "Time": "Transaction Time", "Amount": "Transaction Amount"},
-                width=800,
-                height=500
-            )
-            st.plotly_chart(fig_time)    
+   
 import streamlit as st
 import numpy as np
 import joblib
@@ -465,3 +413,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
